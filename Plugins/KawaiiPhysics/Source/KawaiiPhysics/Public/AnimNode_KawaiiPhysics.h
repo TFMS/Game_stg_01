@@ -195,14 +195,18 @@ public:
 
 public:
 
-	void UpdatePoseTranform(const FBoneContainer& BoneContainer, FCSPose<FCompactPose>& Pose)
+	void UpdatePoseTranform(const FBoneContainer& BoneContainer, FCSPose<FCompactPose>& Pose, bool ResetBoneTransformWhenBoneNotFound)
 	{
 		auto CompactPoseIndex = BoneRef.GetCompactPoseIndex(BoneContainer);
 		if (CompactPoseIndex < 0)
 		{
-			PoseLocation = FVector::ZeroVector;
-			PoseRotation = FQuat::Identity;
-			PoseScale = FVector::OneVector;
+			// Reset bone location and rotation may cause trouble when switching between skeleton LODs #44
+			if(ResetBoneTransformWhenBoneNotFound)
+			{
+				PoseLocation = FVector::ZeroVector;
+				PoseRotation = FQuat::Identity;
+				PoseScale = FVector::OneVector;
+			}
 			return;
 		}
 
@@ -211,6 +215,8 @@ public:
 		PoseRotation = ComponentSpaceTransform.GetRotation();
 		PoseScale = ComponentSpaceTransform.GetScale3D();
 	}
+	FKawaiiPhysicsModifyBone(){}
+
 };
 
 USTRUCT(BlueprintType)
@@ -234,28 +240,53 @@ public:
 	FKawaiiPhysicsSettings PhysicsSettings;
 	
 	/** Curve for adjusting the set value of physical behavior. Use rate of bone length from Root */
+	UPROPERTY()
+	UCurveFloat* DampingCurve_DEPRECATED = nullptr;
+
+	/** Curve for adjusting the set value of physical behavior. Use rate of bone length from Root */
+	UPROPERTY()
+	UCurveFloat* WorldDampingLocationCurve_DEPRECATED = nullptr;
+
+	/** Curve for adjusting the set value of physical behavior. Use rate of bone length from Root */
+	UPROPERTY()
+	UCurveFloat* WorldDampingRotationCurve_DEPRECATED = nullptr;
+
+	/** Curve for adjusting the set value of physical behavior. Use rate of bone length from Root */
+	UPROPERTY()
+	UCurveFloat* StiffnessCurve_DEPRECATED = nullptr;
+
+	/** Curve for adjusting the set value of physical behavior. Use rate of bone length from Root */
+	UPROPERTY()
+	UCurveFloat* RadiusCurve_DEPRECATED = nullptr;
+
+	/** Curve for adjusting the set value of physical behavior. Use rate of bone length from Root */
+	UPROPERTY()
+	UCurveFloat* LimitAngleCurve_DEPRECATED = nullptr;
+
+	//  START SKYBLUE MOD
+	/** Curve for adjusting the set value of physical behavior. Use rate of bone length from Root */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physics Settings", meta = (PinHiddenByDefault))
-	UCurveFloat* DampingCurve = nullptr;
+	FRuntimeFloatCurve DampingCurveData;
 
 	/** Curve for adjusting the set value of physical behavior. Use rate of bone length from Root */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physics Settings", meta = (PinHiddenByDefault))
-	UCurveFloat* WorldDampingLocationCurve = nullptr;
+	FRuntimeFloatCurve WorldDampingLocationCurveData;
 
 	/** Curve for adjusting the set value of physical behavior. Use rate of bone length from Root */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physics Settings", meta = (PinHiddenByDefault))
-	UCurveFloat* WorldDampingRotationCurve = nullptr;
+	FRuntimeFloatCurve WorldDampingRotationCurveData;
 
 	/** Curve for adjusting the set value of physical behavior. Use rate of bone length from Root */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physics Settings", meta = (PinHiddenByDefault))
-	UCurveFloat* StiffnessCurve = nullptr;
+	FRuntimeFloatCurve StiffnessCurveData;
 
 	/** Curve for adjusting the set value of physical behavior. Use rate of bone length from Root */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physics Settings", meta = (PinHiddenByDefault))
-	UCurveFloat* RadiusCurve = nullptr;
+	FRuntimeFloatCurve RadiusCurveData;
 
 	/** Curve for adjusting the set value of physical behavior. Use rate of bone length from Root */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physics Settings", meta = (PinHiddenByDefault))
-	UCurveFloat* LimitAngleCurve = nullptr;
+	FRuntimeFloatCurve LimitAngleCurveData;
 
 	/** Flag to update each frame physical parameter. Disable to improve performance */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Advanced Physics Settings", meta = (PinHiddenByDefault))
@@ -272,6 +303,9 @@ public:
 	/** Fix the bone on the specified plane  */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Advanced Physics Settings", meta = (PinHiddenByDefault))
 	EPlanarConstraint PlanarConstraint = EPlanarConstraint::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Advanced Physics Settings", meta = (PinHiddenByDefault))
+	bool ResetBoneTransformWhenBoneNotFound = false;
 
 
 	UPROPERTY(EditAnywhere, Category = "Spherical Limits")
@@ -303,12 +337,36 @@ public:
 	FVector Gravity = FVector::ZeroVector;
 	
 	/** Whether or not wind is enabled for the bodies in this simulation */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Wind, meta = (PinHiddenByDefault))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wind", meta = (PinHiddenByDefault))
 	bool bEnableWind = false;
 
 	/** Scale to apply to calculated wind velocities in the solver */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Wind, meta = (DisplayAfter = "bEnableWind"), meta = (PinHiddenByDefault))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wind", meta = (DisplayAfter = "bEnableWind"), meta = (PinHiddenByDefault))
 	float WindScale = 1.0f;
+
+	/**
+	 *	EXPERIMENTAL. Perform sweeps for each simulating bodies to avoid collisions with the world.
+	 *	This greatly increases the cost of the physics simulation.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Collision", meta = (PinHiddenByDefault))
+	bool bAllowWorldCollision = false;
+	//use component collision channel settings by default
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Collision", meta = (PinHiddenByDefault, EditCondition = "bAllowWorldCollision"))
+	bool bOverrideCollisionParams = false;
+	/** Types of objects that this physics objects will collide with. */
+	UPROPERTY(EditAnywhere, Category = "Collision", meta = (FullyExpand = "true", EditCondition = "bAllowWorldCollision&&bOverrideCollisionParams"))
+	FBodyInstance CollisionChannelSettings;
+
+
+	/** Self collision is best done by setting the "Limits" in this node, but if you really need using PhysicsAsset collision, uncheck this!*/
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Collision", meta = (PinHiddenByDefault, EditCondition = "bAllowWorldCollision"))
+	bool bIgnoreSelfComponent = true;
+	/** Self bone is always ignored*/
+	UPROPERTY(EditAnywhere, Category = "Collision", meta = (EditCondition = "!bIgnoreSelfComponent"))
+	TArray<FBoneReference> IgnoreBones;
+	/** If the bone starts with this name, will be ignored (Self bone is always ignored)*/
+	UPROPERTY(EditAnywhere, Category = "Collision", meta = (EditCondition = "!bIgnoreSelfComponent"))
+	TArray<FName> IgnoreBoneNamePrefix;
 
 	UPROPERTY()
 	TArray< FKawaiiPhysicsModifyBone > ModifyBones;
@@ -356,7 +414,6 @@ public:
 		return TotalBoneLength;
 	}
 	
-
 private:
 	FVector GetBoneForwardVector(const FQuat& Rotation)
 	{
@@ -394,6 +451,7 @@ private:
 	void UpdatePlanerLimits(TArray<FPlanarLimit>& Limits, FComponentSpacePoseContext& Output, const FBoneContainer& BoneContainer, FTransform& ComponentTransform);
 
 	void SimulateModifyBones(FComponentSpacePoseContext& Output, const FBoneContainer& BoneContainer, FTransform& ComponentTransform);
+	void AdjustByWorldCollision(FKawaiiPhysicsModifyBone& Bone, const USkeletalMeshComponent* OwningComp, const FBoneContainer& BoneContainer);
 	void AdjustBySphereCollision(FKawaiiPhysicsModifyBone& Bone, TArray<FSphericalLimit>& Limits);
 	void AdjustByCapsuleCollision(FKawaiiPhysicsModifyBone& Bone, TArray<FCapsuleLimit>& Limits);
 	void AdjustByPlanerCollision(FKawaiiPhysicsModifyBone& Bone, TArray<FPlanarLimit>& Limits);
